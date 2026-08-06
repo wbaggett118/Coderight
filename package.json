@@ -1,0 +1,15 @@
+{
+  "name": "coderight",
+  "version": "0.1.0",
+  "description": "Simple starter app for Coderight (eye-based lie detector demo)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": "18.x"
+  },
+  "dependencies": {
+    "express": "^4.18.2"
+  }
+}
