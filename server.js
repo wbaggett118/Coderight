@@ -19,7 +19,29 @@ app.get('/api/status', (req, res) => {
   res.json({app: 'Coderight', version: '0.1.0'});
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Server listening on port ${PORT}`);
+// Simple error-handling middleware
+app.use((err, req, res, next) => {
+  console.error('Unhandled error:', err);
+  if (!res.headersSent) {
+    res.status(500).json({error: 'internal_server_error'});
+  }
 });
+
+// Export the app for tests or server runtime
+module.exports = app;
+
+// If run directly, start the server
+if (require.main === module) {
+  const PORT = process.env.PORT || 3000;
+  const server = app.listen(PORT, '0.0.0.0', () => {
+    console.log(`Server listening on port ${PORT}`);
+  });
+
+  // Graceful shutdown
+  const shutdown = () => {
+    console.log('Shutting down server');
+    server.close(() => process.exit(0));
+  };
+  process.on('SIGINT', shutdown);
+  process.on('SIGTERM', shutdown);
+}

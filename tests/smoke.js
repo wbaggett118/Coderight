@@ -1,58 +1,43 @@
-const { spawn } = require('child_process');
 const http = require('http');
+const app = require('../server');
 
 const PORT = process.env.PORT || 3000;
 
-// Start the server as a child process
-const serverProc = spawn(process.execPath, ['server.js'], { stdio: ['ignore', 'pipe', 'pipe'] });
+const server = app.listen(PORT, '127.0.0.1', () => {
+  console.log('Smoke test: server started');
+});
 
-serverProc.stdout.on('data', (d) => process.stdout.write(d));
-serverProc.stderr.on('data', (d) => process.stderr.write(d));
+function checkPath(path) {
+  return new Promise((resolve, reject) => {
+    const req = http.get({ hostname: '127.0.0.1', port: PORT, path, timeout: 2000 }, (res) => {
+      const status = res.statusCode;
+      res.resume();
+      resolve(status === 200);
+    });
+    req.on('error', (err) => reject(err));
+    req.on('timeout', () => { req.destroy(); reject(new Error('timeout')); });
+  });
+}
 
-let checksDone = false;
-
-function checkHealth() {
-  const req = http.get({ hostname: '127.0.0.1', port: PORT, path: '/health', timeout: 2000 }, (res) => {
-    if (res.statusCode === 200) {
-      console.log('Health check OK');
-      runRootCheck();
-    } else {
-      retry();
+(async () => {
+  try {
+    // wait for server to be ready
+    let ok = false;
+    for (let i = 0; i < 20; i++) {
+      try {
+        if (await checkPath('/health')) { ok = true; break; }
+      } catch (e) {}
+      await new Promise(r => setTimeout(r, 1000));
     }
-  });
+    if (!ok) throw new Error('health check failed');
 
-  req.on('error', () => retry());
-  req.on('timeout', () => { req.destroy(); retry(); });
-}
+    const rootOk = await checkPath('/');
+    if (!rootOk) throw new Error('/ returned non-200');
 
-function runRootCheck() {
-  if (checksDone) return;
-  checksDone = true;
-  http.get({ hostname: '127.0.0.1', port: PORT, path: '/' }, (res) => {
-    console.log('Root status', res.statusCode);
-    cleanup(res.statusCode === 200 ? 0 : 2);
-  }).on('error', (err) => {
-    console.error('Root check failed', err.message);
-    cleanup(2);
-  });
-}
-
-let retries = 0;
-function retry() {
-  if (retries++ > 20) {
-    console.error('Server did not become healthy in time');
-    cleanup(3);
-    return;
+    console.log('Smoke test passed');
+    server.close(() => process.exit(0));
+  } catch (err) {
+    console.error('Smoke test failed:', err && err.message ? err.message : err);
+    server.close(() => process.exit(2));
   }
-  setTimeout(checkHealth, 1000);
-}
-
-function cleanup(code) {
-  if (!serverProc.killed) {
-    serverProc.kill();
-  }
-  process.exit(code);
-}
-
-// Give server a moment then start checking
-setTimeout(checkHealth, 1000);
+})();
