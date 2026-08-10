@@ -1,0 +1,96 @@
+name: diagnostics
+
+on:
+  push:
+    branches:
+      - diagnostics/digitalrt
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  detect-and-run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node (if needed)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+        if: "contains(github.event.head_commit.message, 'noop') == false"
+
+      - name: Run diagnostics script (install/test/build where applicable)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+
+          # Node (npm)
+          if [ -f package.json ]; then
+            echo "Detected package.json — running npm ci, test, build"
+            npm ci --loglevel=error > artifacts/node_install.log 2>&1 || true
+            npm test > artifacts/node_test.log 2>&1 || true
+            # run build if script exists
+            if npm run | sed -n '1,120p' | grep -q " build"; then
+              npm run build > artifacts/node_build.log 2>&1 || true
+            fi
+          else
+            echo "No package.json found — skipping Node steps" > artifacts/node_skip.log
+          fi
+
+          # Python
+          if [ -f requirements.txt ] || [ -f setup.py ] || [ -f pyproject.toml ]; then
+            echo "Detected Python project — creating venv and running tests"
+            python3 -m venv venv
+            source venv/bin/activate
+            if [ -f requirements.txt ]; then
+              pip install -r requirements.txt > artifacts/python_pip.log 2>&1 || true
+            fi
+            if [ -f pyproject.toml ]; then
+              pip install -U pip build poetry  > artifacts/python_tools_install.log 2>&1 || true
+            fi
+            pytest -q > artifacts/python_test.log 2>&1 || true
+          else
+            echo "No Python indicators found — skipping Python steps" > artifacts/python_skip.log
+          fi
+
+          # Maven/Gradle (Java)
+          if [ -f pom.xml ]; then
+            echo "Detected Maven project (pom.xml) — running mvn test and package"
+            mvn -B test > artifacts/maven_test.log 2>&1 || true
+            mvn -B package > artifacts/maven_build.log 2>&1 || true
+          elif [ -f build.gradle ] || [ -f build.gradle.kts ]; then
+            echo "Detected Gradle project — running gradle/./gradlew tasks"
+            if [ -f gradlew ]; then
+              chmod +x ./gradlew
+              ./gradlew test --no-daemon > artifacts/gradle_test.log 2>&1 || true
+              ./gradlew assemble --no-daemon > artifacts/gradle_build.log 2>&1 || true
+            else
+              gradle test > artifacts/gradle_test.log 2>&1 || true
+              gradle assemble > artifacts/gradle_build.log 2>&1 || true
+            fi
+          else
+            echo "No Java build files found — skipping Java steps" > artifacts/java_skip.log
+          fi
+
+          # Docker
+          if [ -f Dockerfile ]; then
+            echo "Detected Dockerfile — attempting to build image"
+            docker --version > artifacts/docker_version.log 2>&1 || true
+            docker build -t diagnostics-image . > artifacts/docker_build.log 2>&1 || true
+          else
+            echo "No Dockerfile found — skipping Docker build" > artifacts/docker_skip.log
+          fi
+
+          # Gather some repo info
+          git rev-parse --abbrev-ref HEAD > artifacts/current_branch.log 2>&1 || true
+          git log -n 20 --oneline > artifacts/recent_commits.log 2>&1 || true
+
+      - name: Upload diagnostics artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: diagnostics-logs
+          path: artifacts/**
