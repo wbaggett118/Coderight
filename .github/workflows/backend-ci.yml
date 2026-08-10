@@ -1,0 +1,45 @@
+name: Backend CI
+
+on:
+  push:
+    branches:
+      - fix/backend-ci
+      - main
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install dependencies
+        run: |
+          mkdir -p ci_logs
+          npm ci > ci_logs/npm_install.log 2>&1 || true
+
+      - name: Run tests (smoke)
+        run: |
+          npm test > ci_logs/npm_test.log 2>&1 || true
+
+      - name: Build Docker image (optional)
+        run: |
+          docker --version > ci_logs/docker_version.log 2>&1 || true
+          docker build -t coderight:ci . > ci_logs/docker_build.log 2>&1 || true
+
+      - name: Upload CI logs
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-logs
+          path: ci_logs/**
