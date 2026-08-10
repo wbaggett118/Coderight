@@ -27,7 +27,11 @@ jobs:
       - name: Install dependencies
         run: |
           mkdir -p ci_logs
-          npm ci > ci_logs/npm_install.log 2>&1 || true
+          if [ -f package-lock.json ]; then
+            npm ci > ci_logs/npm_install.log 2>&1 || true
+          else
+            npm install > ci_logs/npm_install.log 2>&1 || true
+          fi
 
       - name: Run tests (smoke)
         run: |
