@@ -1,15 +1,20 @@
-# Multi-stage Dockerfile for Coderight
-
-FROM node:18-alpine AS builder
-WORKDIR /app
-# Copy package metadata first to leverage layer caching
-COPY package*.json ./
-# If a lockfile exists, prefer npm ci, otherwise fall back to npm install
-RUN if [ -f package-lock.json ]; then npm ci --only=prod; else npm install --only=prod; fi
-COPY . .
+# Simple Dockerfile for Coderight
+# Builds a minimal image running Node 18
 
 FROM node:18-alpine
+
+# Create app directory
 WORKDIR /app
-COPY --from=builder /app /app
+
+# Install dependencies first (better cache)
+COPY package*.json ./
+
+# Install only production deps in image
+RUN npm ci --only=production || npm install --no-audit --no-fund
+
+# Copy app sources
+COPY . .
+
 EXPOSE 3000
-CMD ["node", "server.js"]
+
+CMD ["node","server.js"]
